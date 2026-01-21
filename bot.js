@@ -17,7 +17,10 @@ async function getAccessToken() {
   if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
     return accessToken;
   }
-  const credentials = JSON.parse(fs.readFileSync('credentials.json'));
+  const credPath = fs.existsSync('/etc/secrets/credentials.json') 
+  ? '/etc/secrets/credentials.json' 
+  : 'credentials.json';
+const credentials = JSON.parse(fs.readFileSync(credPath));
   const jwtHeader = Buffer.from(JSON.stringify({alg: 'RS256', typ: 'JWT'})).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const jwtClaimSet = Buffer.from(JSON.stringify({iss: credentials.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets', aud: 'https://oauth2.googleapis.com/token', exp: now + 3600, iat: now})).toString('base64url');
