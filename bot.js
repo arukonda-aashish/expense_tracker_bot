@@ -1,6 +1,7 @@
 require('dotenv').config();
 
-import http from "http";
+const http = require("http");
+
 
 // ---- tiny web server for Render ----
 const PORT = process.env.PORT || 10000;
