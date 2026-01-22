@@ -1,22 +1,18 @@
 require('dotenv').config();
 
-const http = require("http");
-
-
-// ---- tiny web server for Render ----
-const PORT = process.env.PORT || 10000;
-
-http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Bot is running");
-}).listen(PORT, () => {
-  console.log(`🌐 Listening on port ${PORT}`);
-});
+const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const fetch = require('node-fetch');
 const fs = require('fs');
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 10000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL; // e.g., https://your-app.onrender.com
+
+// Create bot WITHOUT polling
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const ALLOWED_USER_ID = parseInt(process.env.ALLOWED_USER_ID);
 
@@ -31,9 +27,9 @@ async function getAccessToken() {
     return accessToken;
   }
   const credPath = fs.existsSync('/etc/secrets/credentials.json') 
-  ? '/etc/secrets/credentials.json' 
-  : 'credentials.json';
-const credentials = JSON.parse(fs.readFileSync(credPath));
+    ? '/etc/secrets/credentials.json' 
+    : 'credentials.json';
+  const credentials = JSON.parse(fs.readFileSync(credPath));
   const jwtHeader = Buffer.from(JSON.stringify({alg: 'RS256', typ: 'JWT'})).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const jwtClaimSet = Buffer.from(JSON.stringify({iss: credentials.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets', aud: 'https://oauth2.googleapis.com/token', exp: now + 3600, iat: now})).toString('base64url');
@@ -57,9 +53,9 @@ function parseTransaction(text) {
   return null;
 }
 
-async function addTransaction(amount, category, notes = '',isRemove) {
+async function addTransaction(amount, category, notes = '', isRemove) {
   try {
-    if(isRemove) amount=-amount;
+    if(isRemove) amount = -amount;
     const token = await getAccessToken();
     const date = new Date().toISOString().split('T')[0];
     const time = new Date().toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit'});
@@ -121,7 +117,6 @@ bot.onText(/\/remove/, (msg) => {
   bot.sendMessage(msg.chat.id, '💸 Enter amount to remove:');
 });
 
-
 bot.onText(/\/summary/, async (msg) => {
   if (msg.from.id !== ALLOWED_USER_ID) return;
   const summary = await getMonthlySummary();
@@ -173,7 +168,6 @@ bot.on('callback_query', async (query) => {
     if (userStates[userId]?.amount) {
       const {amount, isRemove} = userStates[userId];
       
-      // If isRemove is true, save as negative amount
       const finalAmount = isRemove ? -Math.abs(amount) : amount;
       const notes = isRemove ? 'REFUND' : '';
       
@@ -195,4 +189,43 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-console.log('🤖 Bot running...');
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.send('Bot is running!');
+});
+
+// Webhook endpoint - Telegram will send updates here
+app.post('/webhook', (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Start server and set webhook
+app.listen(PORT, async () => {
+  console.log(`🌐 Server running on port ${PORT}`);
+  
+  try {
+    // Set the webhook
+    await bot.setWebHook(`${WEBHOOK_URL}/webhook`);
+    console.log('✅ Webhook set successfully');
+    
+    // Verify webhook info
+    const info = await bot.getWebHookInfo();
+    console.log('📡 Webhook info:', info);
+  } catch (error) {
+    console.error('❌ Failed to set webhook:', error);
+  }
+});
+
+// Graceful shutdown
+process.once('SIGINT', () => {
+  console.log('Stopping bot...');
+  process.exit(0);
+});
+
+process.once('SIGTERM', () => {
+  console.log('Stopping bot...');
+  process.exit(0);
+});
+
+console.log('🤖 Bot starting...');
